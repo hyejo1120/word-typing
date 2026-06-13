@@ -83,17 +83,21 @@
     font-weight: 700;
     letter-spacing: 1px;
     text-shadow: 0 2px 8px rgba(0,0,0,0.5);
+    color: var(--text);
   }
-  .word .ko {
-    font-size: 15px;
-    color: var(--muted);
+  /* 사용자가 입력 중인 뜻을 단어 아래에 표시 */
+  .word .answer {
+    font-size: 16px;
+    color: var(--accent);
     margin-top: 2px;
+    min-height: 18px;
+    font-weight: 600;
   }
-  /* 이미 입력한 글자 */
-  .word .en .typed { color: var(--accent); }
-  .word .en .rest { color: var(--text); }
   /* 현재 타이핑 대상으로 잠긴 단어 */
-  .word.active .en .rest { color: #fde68a; }
+  .word.active .en { color: #fde68a; }
+  .word.active {
+    filter: drop-shadow(0 0 6px rgba(129,140,248,0.6));
+  }
 
   /* 하단 입력 영역 */
   #input-bar {
@@ -188,9 +192,9 @@
     <div id="overlay">
       <h1>영어 단어 타이핑</h1>
       <p>
-        단어가 화면 아래에서 위로 올라옵니다.<br />
-        위로 사라지기 전에 <b>영어 스펠링</b>을 정확히 입력하세요!<br />
-        한국어 뜻이 함께 표시됩니다. 단어를 놓치면 생명이 줄어듭니다.
+        영어 단어가 화면 아래에서 위로 올라옵니다.<br />
+        위로 사라지기 전에 그 단어의 <b>한국어 뜻</b>을 정확히 입력하세요!<br />
+        단어를 놓치면 생명이 줄어듭니다. (한글 입력기로 전환해 주세요)
       </p>
       <p class="big">준비되셨나요?</p>
       <button id="start-btn">게임 시작 ▶</button>
@@ -198,7 +202,7 @@
   </div>
 
   <div id="input-bar">
-    <input id="typed" type="text" placeholder="여기에 영어 단어를 입력하세요..." autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" disabled />
+    <input id="typed" type="text" placeholder="단어의 한국어 뜻을 입력하세요..." autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" disabled />
     <button class="secondary" id="pause-btn" disabled>일시정지</button>
   </div>
 
@@ -279,7 +283,8 @@ function spawnWord() {
 
   const node = document.createElement("div");
   node.className = "word";
-  node.innerHTML = `<div class="en"><span class="typed"></span><span class="rest">${en}</span></div><div class="ko">${ko}</div>`;
+  // 영어 단어만 보여주고, 뜻은 사용자가 직접 입력. answer 줄에 입력 진행 표시
+  node.innerHTML = `<div class="en">${en}</div><div class="answer"></div>`;
 
   // 가로 위치: 화면 폭 안에서 여유를 두고 배치
   const margin = 90;
@@ -299,41 +304,38 @@ function spawnWord() {
 
 // ===== 입력 처리 =====
 function handleInput() {
-  const val = input.value.trim().toLowerCase();
+  const val = input.value.trim();
   if (val === "") {
     clearActive();
     return;
   }
 
-  // active 단어가 없으면, 입력 첫 글자와 맞는 단어 중 가장 위(가장 위험한) 것을 선택
-  if (!state.active || !state.active.en.startsWith(val)) {
+  // active 단어가 없거나 더 이상 맞지 않으면, 입력과 맞는 단어 중 가장 위(가장 위험한) 것을 선택
+  if (!state.active || !state.active.ko.startsWith(val)) {
     const candidates = state.words
-      .filter(w => w.en.startsWith(val))
+      .filter(w => w.ko.startsWith(val))
       .sort((a, b) => a.y - b.y); // y가 작을수록 위 = 더 위험
     state.active = candidates[0] || null;
     refreshActiveStyles();
   }
 
   if (!state.active) {
-    // 어떤 단어와도 안 맞음 → 틀린 입력
+    // 어떤 단어의 뜻과도 안 맞음 → 틀린 입력
     return;
   }
 
-  // active 단어 진행도 갱신
+  // active 단어 진행도(입력한 뜻) 표시
   const w = state.active;
-  w.typedCount = val.length;
   renderWordProgress(w, val);
 
-  if (val === w.en) {
+  if (val === w.ko) {
     completeWord(w);
   }
 }
 
 function renderWordProgress(w, val) {
-  const typedSpan = w.node.querySelector(".typed");
-  const restSpan = w.node.querySelector(".rest");
-  typedSpan.textContent = w.en.slice(0, val.length);
-  restSpan.textContent = w.en.slice(val.length);
+  // 입력한 한국어 뜻을 단어 아래에 보여줌
+  w.node.querySelector(".answer").textContent = val;
 }
 
 function refreshActiveStyles() {
@@ -494,12 +496,13 @@ function togglePause() {
 startBtn.addEventListener("click", startGame);
 pauseBtn.addEventListener("click", togglePause);
 
-input.addEventListener("input", (e) => {
-  // 타자수 정확도 측정 (글자 추가 시점만 단순 집계)
-  if (e.inputType === "insertText") {
+input.addEventListener("input", () => {
+  // 한글 IME 조합 중에는 inputType이 일정하지 않으므로, 매 입력마다
+  // 현재 값이 어떤 단어의 뜻으로 이어질 수 있는지로 정확도를 추정한다.
+  const val = input.value.trim();
+  if (val !== "") {
     state.totalKeystrokes += 1;
-    const val = input.value.trim().toLowerCase();
-    const match = state.words.some(w => w.en.startsWith(val));
+    const match = state.words.some(w => w.ko.startsWith(val));
     if (match) state.correctKeystrokes += 1;
     updateHud();
   }
