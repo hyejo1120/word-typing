@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>영어 단어 타이핑 연습</title>
+<style>
+  :root {
+    --bg: #0f1226;
+    --bg2: #1a1f3a;
+    --accent: #5eead4;
+    --accent2: #818cf8;
+    --danger: #f87171;
+    --text: #e2e8f0;
+    --muted: #94a3b8;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: "Segoe UI", "Malgun Gothic", system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    height: 100vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* 상단 정보 바 */
+  #hud {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 20px;
+    background: rgba(0, 0, 0, 0.25);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    z-index: 10;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  .stat {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-width: 70px;
+  }
+  .stat .label { font-size: 11px; color: var(--muted); letter-spacing: 1px; }
+  .stat .value { font-size: 22px; font-weight: 700; }
+  .value.score { color: var(--accent); }
+  .value.lives { color: var(--danger); }
+  .value.level { color: var(--accent2); }
+
+  /* 게임 화면 */
+  #play-area {
+    position: relative;
+    flex: 1;
+    overflow: hidden;
+    background:
+      radial-gradient(ellipse at top, var(--bg2), var(--bg));
+  }
+
+  /* 위로 사라지는 위험 영역 표시 */
+  #danger-zone {
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 60px;
+    background: linear-gradient(to bottom, rgba(248,113,113,0.18), transparent);
+    border-bottom: 1px dashed rgba(248,113,113,0.4);
+    pointer-events: none;
+  }
+
+  .word {
+    position: absolute;
+    text-align: center;
+    transform: translateX(-50%);
+    transition: color 0.1s;
+    user-select: none;
+  }
+  .word .en {
+    font-size: 30px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    text-shadow: 0 2px 8px rgba(0,0,0,0.5);
+  }
+  .word .ko {
+    font-size: 15px;
+    color: var(--muted);
+    margin-top: 2px;
+  }
+  /* 이미 입력한 글자 */
+  .word .en .typed { color: var(--accent); }
+  .word .en .rest { color: var(--text); }
+  /* 현재 타이핑 대상으로 잠긴 단어 */
+  .word.active .en .rest { color: #fde68a; }
+
+  /* 하단 입력 영역 */
+  #input-bar {
+    padding: 14px 20px;
+    background: rgba(0, 0, 0, 0.3);
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    display: flex;
+    gap: 12px;
+    align-items: center;
+  }
+  #typed {
+    flex: 1;
+    font-size: 22px;
+    padding: 12px 16px;
+    border-radius: 10px;
+    border: 2px solid var(--accent2);
+    background: #0b0e1f;
+    color: var(--text);
+    outline: none;
+  }
+  #typed::placeholder { color: var(--muted); }
+
+  button {
+    font-family: inherit;
+    font-size: 15px;
+    font-weight: 600;
+    padding: 10px 20px;
+    border-radius: 10px;
+    border: none;
+    cursor: pointer;
+    background: var(--accent2);
+    color: #0b0e1f;
+    transition: transform 0.08s, opacity 0.2s;
+  }
+  button:hover { transform: translateY(-1px); }
+  button:active { transform: translateY(0); }
+  button.secondary { background: transparent; border: 1px solid var(--muted); color: var(--text); }
+
+  /* 오버레이 (시작 / 게임오버) */
+  #overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(10, 12, 30, 0.92);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    gap: 18px;
+    z-index: 20;
+    padding: 20px;
+  }
+  #overlay h1 {
+    font-size: 40px;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  #overlay p { color: var(--muted); max-width: 420px; line-height: 1.6; }
+  #overlay .big { font-size: 26px; color: var(--text); }
+  .hidden { display: none !important; }
+
+  /* 점수 획득 애니메이션 */
+  @keyframes pop {
+    0% { transform: translateX(-50%) scale(1); opacity: 1; }
+    100% { transform: translateX(-50%) translateY(-40px) scale(1.4); opacity: 0; }
+  }
+  .popup {
+    position: absolute;
+    transform: translateX(-50%);
+    color: var(--accent);
+    font-weight: 700;
+    font-size: 20px;
+    pointer-events: none;
+    animation: pop 0.6s ease-out forwards;
+  }
+</style>
+</head>
+<body>
+  <div id="hud">
+    <div class="stat"><span class="label">점수 SCORE</span><span class="value score" id="score">0</span></div>
+    <div class="stat"><span class="label">레벨 LEVEL</span><span class="value level" id="level">1</span></div>
+    <div class="stat"><span class="label">생명 LIVES</span><span class="value lives" id="lives">❤❤❤</span></div>
+    <div class="stat"><span class="label">맞춘 단어</span><span class="value" id="cleared">0</span></div>
+    <div class="stat"><span class="label">정확도</span><span class="value" id="accuracy">100%</span></div>
+  </div>
+
+  <div id="play-area">
+    <div id="danger-zone"></div>
+
+    <div id="overlay">
+      <h1>영어 단어 타이핑</h1>
+      <p>
+        단어가 화면 아래에서 위로 올라옵니다.<br />
+        위로 사라지기 전에 <b>영어 스펠링</b>을 정확히 입력하세요!<br />
+        한국어 뜻이 함께 표시됩니다. 단어를 놓치면 생명이 줄어듭니다.
+      </p>
+      <p class="big">준비되셨나요?</p>
+      <button id="start-btn">게임 시작 ▶</button>
+    </div>
+  </div>
+
+  <div id="input-bar">
+    <input id="typed" type="text" placeholder="여기에 영어 단어를 입력하세요..." autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" disabled />
+    <button class="secondary" id="pause-btn" disabled>일시정지</button>
+  </div>
+
+<script>
+// ===== 단어 데이터 (영어 - 한국어 뜻) =====
+const WORDS = [
+  ["apple", "사과"], ["book", "책"], ["water", "물"], ["happy", "행복한"],
+  ["school", "학교"], ["friend", "친구"], ["music", "음악"], ["window", "창문"],
+  ["family", "가족"], ["morning", "아침"], ["garden", "정원"], ["yellow", "노란색"],
+  ["winter", "겨울"], ["animal", "동물"], ["bridge", "다리"], ["coffee", "커피"],
+  ["doctor", "의사"], ["future", "미래"], ["island", "섬"], ["market", "시장"],
+  ["nature", "자연"], ["orange", "오렌지"], ["pencil", "연필"], ["river", "강"],
+  ["summer", "여름"], ["travel", "여행"], ["voice", "목소리"], ["weather", "날씨"],
+  ["bottle", "병"], ["camera", "카메라"], ["dancer", "무용수"], ["engine", "엔진"],
+  ["flower", "꽃"], ["guitar", "기타"], ["honey", "꿀"], ["jacket", "재킷"],
+  ["kitchen", "부엌"], ["letter", "편지"], ["mirror", "거울"], ["number", "숫자"],
+  ["office", "사무실"], ["picture", "그림"], ["question", "질문"], ["rabbit", "토끼"],
+  ["station", "역"], ["teacher", "선생님"], ["umbrella", "우산"], ["village", "마을"],
+  ["wallet", "지갑"], ["yogurt", "요거트"], ["bright", "밝은"], ["strong", "강한"],
+  ["quiet", "조용한"], ["dream", "꿈"], ["health", "건강"], ["language", "언어"],
+  ["mountain", "산"], ["ocean", "바다"], ["planet", "행성"], ["science", "과학"]
+];
+
+// ===== 게임 상태 =====
+const state = {
+  running: false,
+  paused: false,
+  score: 0,
+  level: 1,
+  lives: 3,
+  cleared: 0,
+  totalKeystrokes: 0,
+  correctKeystrokes: 0,
+  active: null,        // 현재 타이핑 중인 단어 객체
+  words: [],           // 화면에 떠있는 단어들
+  lastSpawn: 0,
+  spawnInterval: 2200, // ms, 레벨에 따라 줄어듦
+  lastFrame: 0,
+};
+
+// ===== DOM =====
+const playArea = document.getElementById("play-area");
+const overlay = document.getElementById("overlay");
+const input = document.getElementById("typed");
+const startBtn = document.getElementById("start-btn");
+const pauseBtn = document.getElementById("pause-btn");
+
+const el = {
+  score: document.getElementById("score"),
+  level: document.getElementById("level"),
+  lives: document.getElementById("lives"),
+  cleared: document.getElementById("cleared"),
+  accuracy: document.getElementById("accuracy"),
+};
+
+// ===== 유틸 =====
+function rand(min, max) { return Math.random() * (max - min) + min; }
+
+function currentSpeed() {
+  // 픽셀/초. 레벨이 오를수록 빨라짐.
+  return 28 + (state.level - 1) * 8;
+}
+
+function updateHud() {
+  el.score.textContent = state.score;
+  el.level.textContent = state.level;
+  el.lives.textContent = "❤".repeat(state.lives) || "💀";
+  el.cleared.textContent = state.cleared;
+  const acc = state.totalKeystrokes === 0
+    ? 100
+    : Math.round((state.correctKeystrokes / state.totalKeystrokes) * 100);
+  el.accuracy.textContent = acc + "%";
+}
+
+// ===== 단어 생성 =====
+function spawnWord() {
+  const [en, ko] = WORDS[Math.floor(Math.random() * WORDS.length)];
+
+  const node = document.createElement("div");
+  node.className = "word";
+  node.innerHTML = `<div class="en"><span class="typed"></span><span class="rest">${en}</span></div><div class="ko">${ko}</div>`;
+
+  // 가로 위치: 화면 폭 안에서 여유를 두고 배치
+  const margin = 90;
+  const x = rand(margin, playArea.clientWidth - margin);
+  node.style.left = x + "px";
+  node.style.top = playArea.clientHeight + "px"; // 화면 아래에서 시작
+
+  playArea.appendChild(node);
+
+  state.words.push({
+    en, ko, node,
+    x,
+    y: playArea.clientHeight,
+    typedCount: 0,
+  });
+}
+
+// ===== 입력 처리 =====
+function handleInput() {
+  const val = input.value.trim().toLowerCase();
+  if (val === "") {
+    clearActive();
+    return;
+  }
+
+  // active 단어가 없으면, 입력 첫 글자와 맞는 단어 중 가장 위(가장 위험한) 것을 선택
+  if (!state.active || !state.active.en.startsWith(val)) {
+    const candidates = state.words
+      .filter(w => w.en.startsWith(val))
+      .sort((a, b) => a.y - b.y); // y가 작을수록 위 = 더 위험
+    state.active = candidates[0] || null;
+    refreshActiveStyles();
+  }
+
+  if (!state.active) {
+    // 어떤 단어와도 안 맞음 → 틀린 입력
+    return;
+  }
+
+  // active 단어 진행도 갱신
+  const w = state.active;
+  w.typedCount = val.length;
+  renderWordProgress(w, val);
+
+  if (val === w.en) {
+    completeWord(w);
+  }
+}
+
+function renderWordProgress(w, val) {
+  const typedSpan = w.node.querySelector(".typed");
+  const restSpan = w.node.querySelector(".rest");
+  typedSpan.textContent = w.en.slice(0, val.length);
+  restSpan.textContent = w.en.slice(val.length);
+}
+
+function refreshActiveStyles() {
+  state.words.forEach(w => w.node.classList.toggle("active", w === state.active));
+}
+
+function clearActive() {
+  if (state.active) {
+    renderWordProgress(state.active, "");
+  }
+  state.active = null;
+  refreshActiveStyles();
+}
+
+function completeWord(w) {
+  // 점수: 글자 수 + 화면 위쪽일수록(위험할수록) 보너스는 생략, 단순 가산
+  const points = w.en.length * 10;
+  state.score += points;
+  state.cleared += 1;
+
+  showPopup(w.x, w.y, "+" + points);
+  removeWord(w);
+
+  // 레벨업: 맞춘 단어 8개마다
+  if (state.cleared % 8 === 0) {
+    state.level += 1;
+    state.spawnInterval = Math.max(800, 2200 - (state.level - 1) * 180);
+  }
+
+  state.active = null;
+  input.value = "";
+  updateHud();
+}
+
+function removeWord(w) {
+  w.node.remove();
+  const i = state.words.indexOf(w);
+  if (i >= 0) state.words.splice(i, 1);
+}
+
+function showPopup(x, y, text) {
+  const p = document.createElement("div");
+  p.className = "popup";
+  p.style.left = x + "px";
+  p.style.top = y + "px";
+  p.textContent = text;
+  playArea.appendChild(p);
+  setTimeout(() => p.remove(), 600);
+}
+
+// ===== 단어가 위로 사라짐 (놓침) =====
+function loseWord(w) {
+  if (state.active === w) {
+    state.active = null;
+    input.value = "";
+  }
+  removeWord(w);
+  state.lives -= 1;
+  updateHud();
+  flashDanger();
+  if (state.lives <= 0) {
+    gameOver();
+  }
+}
+
+function flashDanger() {
+  playArea.style.boxShadow = "inset 0 0 80px rgba(248,113,113,0.5)";
+  setTimeout(() => { playArea.style.boxShadow = ""; }, 200);
+}
+
+// ===== 게임 루프 =====
+function loop(ts) {
+  if (!state.running) return;
+  if (state.paused) { state.lastFrame = ts; requestAnimationFrame(loop); return; }
+
+  if (!state.lastFrame) state.lastFrame = ts;
+  const dt = (ts - state.lastFrame) / 1000;
+  state.lastFrame = ts;
+
+  // 단어 생성
+  if (ts - state.lastSpawn > state.spawnInterval) {
+    spawnWord();
+    state.lastSpawn = ts;
+  }
+
+  // 단어 이동 (아래 → 위)
+  const speed = currentSpeed();
+  for (let i = state.words.length - 1; i >= 0; i--) {
+    const w = state.words[i];
+    w.y -= speed * dt;
+    w.node.style.top = w.y + "px";
+    if (w.y < -10) {
+      loseWord(w);
+    }
+  }
+
+  requestAnimationFrame(loop);
+}
+
+// ===== 게임 제어 =====
+function startGame() {
+  state.running = true;
+  state.paused = false;
+  state.score = 0;
+  state.level = 1;
+  state.lives = 3;
+  state.cleared = 0;
+  state.totalKeystrokes = 0;
+  state.correctKeystrokes = 0;
+  state.active = null;
+  state.words.forEach(w => w.node.remove());
+  state.words = [];
+  state.lastSpawn = 0;
+  state.lastFrame = 0;
+  state.spawnInterval = 2200;
+
+  overlay.classList.add("hidden");
+  input.disabled = false;
+  pauseBtn.disabled = false;
+  input.value = "";
+  input.focus();
+  updateHud();
+  requestAnimationFrame(loop);
+}
+
+function gameOver() {
+  state.running = false;
+  input.disabled = true;
+  pauseBtn.disabled = true;
+  const acc = state.totalKeystrokes === 0 ? 100
+    : Math.round((state.correctKeystrokes / state.totalKeystrokes) * 100);
+  overlay.innerHTML = `
+    <h1>게임 종료</h1>
+    <p class="big">최종 점수: <b>${state.score}</b></p>
+    <p>맞춘 단어: ${state.cleared}개 &nbsp;·&nbsp; 정확도: ${acc}% &nbsp;·&nbsp; 레벨: ${state.level}</p>
+    <button id="restart-btn">다시 시작 🔄</button>
+  `;
+  overlay.classList.remove("hidden");
+  document.getElementById("restart-btn").addEventListener("click", startGame);
+}
+
+function togglePause() {
+  if (!state.running) return;
+  state.paused = !state.paused;
+  pauseBtn.textContent = state.paused ? "계속하기" : "일시정지";
+  if (state.paused) {
+    overlay.innerHTML = `<h1>일시정지</h1><button id="resume-btn">계속하기 ▶</button>`;
+    overlay.classList.remove("hidden");
+    document.getElementById("resume-btn").addEventListener("click", togglePause);
+  } else {
+    overlay.classList.add("hidden");
+    state.lastFrame = 0;
+    input.focus();
+  }
+}
+
+// ===== 이벤트 =====
+startBtn.addEventListener("click", startGame);
+pauseBtn.addEventListener("click", togglePause);
+
+input.addEventListener("input", (e) => {
+  // 타자수 정확도 측정 (글자 추가 시점만 단순 집계)
+  if (e.inputType === "insertText") {
+    state.totalKeystrokes += 1;
+    const val = input.value.trim().toLowerCase();
+    const match = state.words.some(w => w.en.startsWith(val));
+    if (match) state.correctKeystrokes += 1;
+    updateHud();
+  }
+  handleInput();
+});
+
+// 스페이스/엔터로 입력칸 비우고 다음 단어로 (선택)
+input.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") {
+    input.value = "";
+    clearActive();
+  }
+});
+
+// 화면 크기 변경 시 단어가 화면 밖으로 나가지 않도록 보정
+window.addEventListener("resize", () => {
+  const margin = 90;
+  state.words.forEach(w => {
+    w.x = Math.min(Math.max(margin, w.x), playArea.clientWidth - margin);
+    w.node.style.left = w.x + "px";
+  });
+});
+</script>
+</body>
+</html>
